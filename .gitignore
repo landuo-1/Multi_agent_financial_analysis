@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment (敏感!)
+.env
+.env.local
+.env.*.local
+
+# Data (缓存和数据库)
+data/cache/*.db
+data/chroma/
+*.sqlite3
+
+# Reports (生成物)
+reports/*.md
+reports/*.html
+reports/*.xlsx
+reports/*.pdf
+reports/*.csv
+
+# Logs (可能含敏感信息)
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pytest
+.pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/
