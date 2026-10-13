@@ -25,7 +25,7 @@ class LLMConfig:
     api_key: str = ""
     light_model: str = "mimo-v2.5"
     temperature: float = 0.1
-    max_tokens: int = 2048
+    max_tokens: int = 4096
 
     @property
     def light_temperature(self) -> float:
@@ -133,7 +133,7 @@ def load_config() -> AppConfig:
         data_source=data_source_config,
         report=report_config,
         log_level=os.getenv("LOG_LEVEL", "INFO"),
-        max_debate_rounds=int(os.getenv("MAX_DEBATE_ROUNDS", "5")),
+        max_debate_rounds=int(os.getenv("MAX_DEBATE_ROUNDS", "2")),
         max_tool_requests=int(os.getenv("MAX_TOOL_REQUESTS", "2")),
     )
 

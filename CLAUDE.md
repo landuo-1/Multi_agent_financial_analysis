@@ -309,6 +309,11 @@ ResolveRequest             AnalyzeResult               TaskListItem
 - `asyncio.Event` 必须惰性创建（`_ensure_event()`），不能在 `__init__` 中直接创建
 - 提交分析任务时自动调用 `cleanup_expired()` 防止内存泄漏
 - `/api/resolve` 默认 `use_llm=true`，通过 `_get_resolve_llm()` 惰性创建轻量 LLM 单例；LLM 不可用时自动降级到纯规则匹配
+- JSON 解析使用 `validators.parse_json_response()` 共享实现，禁止在各 Agent 中重复拷贝
+- 风险信号键名兼容中英文（`risk_signals` / `风险信号` / `risk_alerts` / `风险预警`）
+- Sub-agent 数据隔离：只注入 `data_subset` + 基础标识信息，不暴露完整 `shared_context`
+- 辩论终止条件与仲裁员判定逻辑必须一致（共识/溃败/僵局/上限）
+- Checkpointer 已启用（`use_checkpointer=True`），`app.invoke()` / `app.astream()` 必须传入 `config={"configurable": {"thread_id": "..."}}`
 
 ## 环境变量
 

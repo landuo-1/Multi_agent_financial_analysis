@@ -150,7 +150,7 @@ def _parse_brief_text(text: str) -> Dict[str, Any]:
                 # 尝试转为数值
                 try:
                     num = float(re.search(r'-?\d+\.?\d*', value).group()) if re.search(r'-?\d+\.?\d*', value) else None
-                except:
+                except (ValueError, TypeError, AttributeError):
                     num = None
                 # 存储（用标签的hash作为key避免编码问题）
                 data[f"field_{len(data)}"] = {"label": label, "value": value, "num": num}

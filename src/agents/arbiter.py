@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from src.prompts.agent_prompts import ARBITER_SYSTEM
+from src.utils.validators import parse_json_response
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -18,32 +19,6 @@ class ArbiterAgent:
 
     def __init__(self, llm: BaseChatModel):
         self.llm = llm
-
-    def _parse_response(self, text: str) -> Dict[str, Any]:
-        """解析 LLM 响应"""
-        import re
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-
-        json_pattern = r'```(?:json)?\s*\n?(.*?)\n?```'
-        matches = re.findall(json_pattern, text, re.DOTALL)
-        for match in matches:
-            try:
-                return json.loads(match.strip())
-            except json.JSONDecodeError:
-                continue
-
-        start = text.find('{')
-        end = text.rfind('}')
-        if start != -1 and end != -1:
-            try:
-                return json.loads(text[start:end + 1])
-            except json.JSONDecodeError:
-                pass
-
-        return None
 
     def _determine_winner(self, debate_history: List[Dict]) -> Dict[str, Any]:
         """基于置信度判定辩论结果"""
@@ -60,7 +35,10 @@ class ArbiterAgent:
             elif arg.get("role") == "bear":
                 bear_confidence = arg.get("confidence", 50)
 
-        # 判定逻辑
+        # 计算轮次
+        debate_rounds = len(debate_history) // 2
+
+        # 判定逻辑（与 graph.py._run_debate 终止条件一致）
         diff = abs(bull_confidence - bear_confidence)
 
         if bull_confidence < 20:
@@ -69,6 +47,8 @@ class ArbiterAgent:
             winner = "bull"
         elif diff < 15:
             winner = "consensus"
+        elif debate_rounds >= 4 and diff > 40:
+            winner = "stalemate"
         else:
             winner = "bull" if bull_confidence > bear_confidence else "bear"
 
@@ -113,7 +93,7 @@ class ArbiterAgent:
                 HumanMessage(content=user_prompt),
             ]
             response = self.llm.invoke(messages)
-            parsed = self._parse_response(response.content)
+            parsed = parse_json_response(response.content)
 
             if parsed:
                 # 合并规则判定和 LLM 输出

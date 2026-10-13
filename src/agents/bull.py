@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from src.prompts.agent_prompts import BULL_SYSTEM
+from src.utils.validators import parse_json_response
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -18,32 +19,6 @@ class BullAgent:
 
     def __init__(self, llm: BaseChatModel):
         self.llm = llm
-
-    def _parse_response(self, text: str) -> Dict[str, Any]:
-        """解析 LLM 响应"""
-        import re
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-
-        json_pattern = r'```(?:json)?\s*\n?(.*?)\n?```'
-        matches = re.findall(json_pattern, text, re.DOTALL)
-        for match in matches:
-            try:
-                return json.loads(match.strip())
-            except json.JSONDecodeError:
-                continue
-
-        start = text.find('{')
-        end = text.rfind('}')
-        if start != -1 and end != -1:
-            try:
-                return json.loads(text[start:end + 1])
-            except json.JSONDecodeError:
-                pass
-
-        return None
 
     def _build_argument(self, state: Dict[str, Any], round_num: int,
                         bear_argument: str = None) -> Dict[str, Any]:
@@ -95,7 +70,7 @@ class BullAgent:
         ]
 
         response = self.llm.invoke(messages)
-        parsed = self._parse_response(response.content)
+        parsed = parse_json_response(response.content)
 
         if parsed is None:
             return {

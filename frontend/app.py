@@ -324,7 +324,7 @@ def render_main(max_rounds: int):
         query = st.text_input(
             "请输入分析目标",
             value=st.session_state.query,
-            placeholder="输入股票代码或公司名称，如 600519、贵州茅台、科大讯飞",
+            placeholder="输入股票代码或公司名称以及需要分析的方向，可激活2-4个分析方向：财务/行业/舆情/估值/全面分析",
             key="query_input",
         )
     with col2:

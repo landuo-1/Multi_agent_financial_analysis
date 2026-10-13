@@ -9,6 +9,7 @@ LangGraph 编排入口
 """
 
 import time
+import uuid
 from typing import Any, Dict, List, Optional, Callable
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -80,13 +81,19 @@ def _run_sub_agents(state: Dict[str, Any], llm: BaseChatModel) -> Dict[str, Any]
         try:
             agent = agent_class(llm)
 
-            # 精准数据注入：只给该 Agent 需要的数据
+            # 精准数据注入：只给该 Agent 需要的数据子集
+            data_subset = agent_config.get("data_subset", {})
+            # 始终包含基础标识信息
+            agent_context = {
+                "stock_code": shared_context.get("stock_code", ""),
+                "stock_name": shared_context.get("stock_name", ""),
+                "data_freshness": shared_context.get("data_freshness", ""),
+                "data_period": shared_context.get("data_period", ""),
+                **data_subset,
+            }
             agent_state = {
                 **state,
-                "shared_context": {
-                    **shared_context,
-                    **agent_config.get("data_subset", {}),
-                },
+                "shared_context": agent_context,
             }
 
             result = agent.execute(agent_state)
@@ -116,7 +123,7 @@ def _run_sub_agents(state: Dict[str, Any], llm: BaseChatModel) -> Dict[str, Any]
 
 
 def _run_debate(state: Dict[str, Any], llm: BaseChatModel,
-                max_rounds: int = 5) -> Dict[str, Any]:
+                max_rounds: int = 2) -> Dict[str, Any]:
     """
     执行对抗辩论
     置信度驱动的动态终止
@@ -186,7 +193,7 @@ def _run_debate(state: Dict[str, Any], llm: BaseChatModel,
 
 
 def build_graph(llm: BaseChatModel, light_llm: Optional[BaseChatModel] = None,
-                max_debate_rounds: int = 5, report_output_dir: str = "./reports") -> StateGraph:
+                max_debate_rounds: int = 2, report_output_dir: str = "./reports") -> StateGraph:
     """
     构建 LangGraph 状态图
 
@@ -239,7 +246,7 @@ def build_graph(llm: BaseChatModel, light_llm: Optional[BaseChatModel] = None,
     # 条件路由函数
     def route_after_resolver(state: Dict[str, Any]) -> str:
         """实体解析后的路由"""
-        resolved = state.get("resolved_entity", {})
+        resolved = state.get("resolved_entity") or {}
         action = resolved.get("action", "not_found")
 
         if action == "auto_confirm":
@@ -288,8 +295,8 @@ def build_graph(llm: BaseChatModel, light_llm: Optional[BaseChatModel] = None,
 
 
 def compile_graph(llm: BaseChatModel, light_llm: Optional[BaseChatModel] = None,
-                  max_debate_rounds: int = 5, report_output_dir: str = "./reports",
-                  use_checkpointer: bool = False) -> Callable:
+                  max_debate_rounds: int = 2, report_output_dir: str = "./reports",
+                  use_checkpointer: bool = True) -> Callable:
     """编译 LangGraph 图，返回可调用的执行函数"""
     workflow = build_graph(
         llm=llm,
@@ -310,9 +317,14 @@ def compile_graph(llm: BaseChatModel, light_llm: Optional[BaseChatModel] = None,
 
 async def run_analysis_async(query: str, llm: BaseChatModel,
                              light_llm: Optional[BaseChatModel] = None,
-                             max_debate_rounds: int = 5,
+                             max_debate_rounds: int = 2,
                              report_output_dir: str = "./reports") -> Dict[str, Any]:
-    """异步执行完整分析流程"""
+    """
+    异步执行完整分析流程
+
+    使用 stream_mode="values" 确保返回完整累积状态，
+    而非最后一个节点的增量输出。
+    """
     app = compile_graph(
         llm=llm,
         light_llm=light_llm,
@@ -321,25 +333,24 @@ async def run_analysis_async(query: str, llm: BaseChatModel,
     )
 
     initial_state = create_initial_state(query)
+    config = {"configurable": {"thread_id": uuid.uuid4().hex[:12]}}
 
     logger.info(f"[Graph] 开始分析: {query}")
     start_time = time.time()
 
-    final_state = None
-    async for event in app.astream(initial_state):
-        for node_name, node_output in event.items():
-            logger.info(f"[Graph] 节点完成: {node_name}")
-            final_state = node_output
+    final_state = {}
+    async for event in app.astream(initial_state, config=config, stream_mode="values"):
+        final_state = event
 
     elapsed = time.time() - start_time
     logger.info(f"[Graph] 分析完成，耗时: {elapsed:.1f} 秒")
 
-    return final_state or {}
+    return final_state
 
 
 def run_analysis(query: str, llm: BaseChatModel,
                  light_llm: Optional[BaseChatModel] = None,
-                 max_debate_rounds: int = 5,
+                 max_debate_rounds: int = 2,
                  report_output_dir: str = "./reports") -> Dict[str, Any]:
     """同步执行完整分析流程"""
     app = compile_graph(
@@ -350,11 +361,12 @@ def run_analysis(query: str, llm: BaseChatModel,
     )
 
     initial_state = create_initial_state(query)
+    config = {"configurable": {"thread_id": uuid.uuid4().hex[:12]}}
 
     logger.info(f"[Graph] 开始分析: {query}")
     start_time = time.time()
 
-    final_state = app.invoke(initial_state)
+    final_state = app.invoke(initial_state, config=config)
 
     elapsed = time.time() - start_time
     logger.info(f"[Graph] 分析完成，耗时: {elapsed:.1f} 秒")

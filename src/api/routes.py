@@ -228,11 +228,13 @@ async def _run_analysis_task(
         # 执行分析
         timer.phase("执行分析图")
         from src.state import create_initial_state
+        import uuid as _uuid
         initial_state = create_initial_state(query)
+        config = {"configurable": {"thread_id": _uuid.uuid4().hex[:12]}}
 
         loop = asyncio.get_event_loop()
         final_state = await asyncio.wait_for(
-            loop.run_in_executor(None, app.invoke, initial_state),
+            loop.run_in_executor(None, lambda: app.invoke(initial_state, config=config)),
             timeout=TASK_TIMEOUT,
         )
 

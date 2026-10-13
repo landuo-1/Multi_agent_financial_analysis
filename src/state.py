@@ -4,8 +4,8 @@ LangGraph 状态图的核心数据结构
 """
 
 from typing import TypedDict, List, Dict, Optional, Annotated, Any
-from operator import add
 from pydantic import BaseModel, Field
+from langgraph.graph.message import add_messages
 from enum import Enum
 import time
 import uuid
@@ -119,7 +119,7 @@ class FinancialAnalysisState(TypedDict):
     """金融分析系统的完整状态定义"""
 
     # 系统级
-    messages: Annotated[List[Dict], add]  # 对话历史（使用 add 归约器）
+    messages: Annotated[List[Dict], add_messages]  # 对话历史（使用 add_messages 归约器，支持去重）
     user_query: str  # 原始用户问题
 
     # 阶段一：实体解析

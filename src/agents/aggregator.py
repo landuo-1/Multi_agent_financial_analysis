@@ -58,6 +58,52 @@ def _judge_polarity(key: str, value: Any) -> str:
     return "NEUTRAL"
 
 
+def _resolve_conflicts_with_llm(conflicts: List[Dict[str, Any]], llm: BaseChatModel) -> List[Dict[str, Any]]:
+    """
+    使用 LLM 解析数据冲突
+
+    当多个 Agent 对同一指标给出不同数值时，
+    LLM 判断哪个值更可信并给出理由。
+    """
+    from src.prompts.agent_prompts import AGGREGATOR_SYSTEM
+
+    if not conflicts:
+        return conflicts
+
+    conflicts_text = json.dumps(conflicts, ensure_ascii=False, indent=2)
+    user_prompt = f"""以下是从不同分析 Agent 中检测到的数据冲突：
+
+{conflicts_text}
+
+请判断每个冲突中哪个值更可信，并给出理由。
+输出 JSON 格式：
+```json
+[
+  {{"fact": "指标名", "resolution": "采用的值和来源", "reason": "判断理由"}}
+]
+```"""
+
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+        messages = [
+            SystemMessage(content=AGGREGATOR_SYSTEM),
+            HumanMessage(content=user_prompt),
+        ]
+        response = llm.invoke(messages)
+        parsed = parse_json_response(response.content)
+
+        if parsed and isinstance(parsed, list):
+            for i, resolution in enumerate(parsed):
+                if i < len(conflicts):
+                    conflicts[i]["resolution"] = resolution.get("resolution", "")
+                    conflicts[i]["reason"] = resolution.get("reason", "")
+                    conflicts[i]["status"] = "已解析"
+    except Exception as e:
+        logger.warning(f"[Aggregator] LLM 冲突解析失败: {e}")
+
+    return conflicts
+
+
 def aggregate_outputs(state: Dict[str, Any], llm: BaseChatModel = None) -> Dict[str, Any]:
     """
     汇聚所有子 Agent 输出
@@ -107,8 +153,9 @@ def aggregate_outputs(state: Dict[str, Any], llm: BaseChatModel = None) -> Dict[
         })
 
         # 对每个事实判断极性
+        risk_signal_keys = {"risk_signals", "风险信号", "risk_alerts", "风险预警"}
         for key, value in fact_sheet.items():
-            if key == "risk_signals":
+            if key in risk_signal_keys:
                 continue
 
             polarity = _judge_polarity(key, value)
@@ -126,20 +173,31 @@ def aggregate_outputs(state: Dict[str, Any], llm: BaseChatModel = None) -> Dict[
             else:
                 neutral_facts.append(fact_entry)
 
-        # 处理风险信号
-        risk_signals = fact_sheet.get("risk_signals", [])
+        # 处理风险信号（兼容中英文键名）
+        risk_signals = []
+        for rk in risk_signal_keys:
+            signals = fact_sheet.get(rk, [])
+            if isinstance(signals, list):
+                risk_signals.extend(signals)
+            elif signals:
+                risk_signals.append(str(signals))
         for signal in risk_signals:
-            bearish_facts.append({
-                "fact": signal,
-                "source": agent_name,
-                "value": None,
-                "key": "risk_signal",
-            })
+            if signal:
+                bearish_facts.append({
+                    "fact": str(signal),
+                    "source": agent_name,
+                    "value": None,
+                    "key": "risk_signal",
+                })
 
     # 3. 检测数据冲突
     conflicts = _detect_conflicts(valid_outputs)
 
-    # 4. 识别缺失数据
+    # 4. LLM 辅助冲突解析（当存在冲突且 LLM 可用时）
+    if conflicts and llm:
+        conflicts = _resolve_conflicts_with_llm(conflicts, llm)
+
+    # 5. 识别缺失数据
     missing_data = _identify_missing_data(valid_outputs)
 
     # 5. 构建辩论简报
@@ -201,30 +259,15 @@ def _detect_conflicts(outputs: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _identify_missing_data(outputs: Dict[str, Any]) -> List[str]:
-    """识别缺失的数据维度"""
-    expected_dimensions = [
-        "财务分析", "行业分析", "舆情分析", "估值分析",
-        "ESG评分", "机构调研纪要", "管理层访谈",
-    ]
+    """识别缺失的数据维度（仅报告系统有能力采集但未运行的 Agent）"""
+    expected_agents = ["财务分析", "行业分析", "舆情分析", "估值分析"]
 
     present_agents = set()
     for output in outputs.values():
         agent_name = output.get("agent_name", "")
         present_agents.add(agent_name)
 
-    missing = []
-    if "财务分析" not in present_agents:
-        missing.append("财务分析")
-    if "行业分析" not in present_agents:
-        missing.append("行业分析")
-    if "舆情分析" not in present_agents:
-        missing.append("舆情分析")
-    if "估值分析" not in present_agents:
-        missing.append("估值分析")
-
-    # 通用缺失数据
-    missing.extend(["ESG评分", "机构调研纪要"])
-
+    missing = [name for name in expected_agents if name not in present_agents]
     return missing
 
 

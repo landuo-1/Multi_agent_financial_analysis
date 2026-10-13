@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from src.state import AgentEnvelope, ToolRequest
-from src.utils.validators import validate_agent_envelope
+from src.utils.validators import validate_agent_envelope, parse_json_response
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -35,32 +35,8 @@ class FinancialAgentBase(ABC):
         pass
 
     def _parse_json_response(self, text: str) -> Optional[Dict[str, Any]]:
-        """从 LLM 响应中提取 JSON"""
-        # 尝试直接解析
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-
-        # 尝试从 markdown code block 中提取
-        json_pattern = r'```(?:json)?\s*\n?(.*?)\n?```'
-        matches = re.findall(json_pattern, text, re.DOTALL)
-        for match in matches:
-            try:
-                return json.loads(match.strip())
-            except json.JSONDecodeError:
-                continue
-
-        # 尝试找到第一个 { 和最后一个 }
-        start = text.find('{')
-        end = text.rfind('}')
-        if start != -1 and end != -1 and end > start:
-            try:
-                return json.loads(text[start:end + 1])
-            except json.JSONDecodeError:
-                pass
-
-        return None
+        """从 LLM 响应中提取 JSON（委托给共享实现）"""
+        return parse_json_response(text)
 
     def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
         """调用 LLM"""

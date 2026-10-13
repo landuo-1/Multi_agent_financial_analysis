@@ -45,18 +45,22 @@ COMMON_ALIASES = {
 def _llm_extract_entity(query: str, llm: BaseChatModel) -> Dict[str, Any]:
     """
     用 LLM 从用户问题中提取公司名称或股票代码
+    支持错别字纠正和自然语言理解
     返回: {"name": "科大讯飞", "code": "002230"} 或 {"name": "", "code": ""}
     """
-    system_prompt = """你是一个实体提取器。从用户输入中提取 A 股上市公司名称或股票代码。
+    system_prompt = """你是一个 A 股上市公司实体提取器。从用户输入中提取公司名称或股票代码。
 
 规则：
-1. 如果用户提到了公司名称（如"茅台"、"科大讯飞"），输出 name 字段
-2. 如果用户提到了6位股票代码（如"600519"），输出 code 字段
+1. 如果用户提到了公司名称，输出 name 字段（使用公司全称或标准简称）
+2. 如果用户提到了6位股票代码，输出 code 字段
 3. 如果两者都没有，输出空字符串
-4. 只输出 JSON，不要解释
+4. 如果用户输入有错别字或谐音字，必须纠正为正确的公司名称
+   例如："嗨康威视" → "海康威视"，"矛台" → "茅台"，"平安很行" → "平安银行"
+5. 如果用户用描述性语言指代公司（如"做电池的龙头"），识别为对应公司（如"宁德时代"）
+6. 只输出 JSON，不要解释
 
 输出格式：
-{"name": "公司名称", "code": "6位代码或空"}"""
+{"name": "正确的公司名称", "code": "6位代码或空"}"""
 
     try:
         messages = [
@@ -123,8 +127,10 @@ def _match_company(name: str, code: str) -> Dict[str, Any]:
                 "source": "alias_exact",
             }
 
-        # 模糊匹配（名称包含在别名中）
-        for alias, (c, full_name) in COMMON_ALIASES.items():
+        # 模糊匹配：按别名长度降序排列，优先匹配最长的别名
+        # 避免 "平安银行" 匹配到 "平安"（中国平安）而非更精确的结果
+        sorted_aliases = sorted(COMMON_ALIASES.items(), key=lambda x: len(x[0]), reverse=True)
+        for alias, (c, full_name) in sorted_aliases:
             if name in alias or alias in name:
                 return {
                     "stock_code": c,

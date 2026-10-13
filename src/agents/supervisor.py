@@ -215,7 +215,7 @@ class Supervisor:
     def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """LangGraph 节点入口"""
         user_query = state.get("user_query", "")
-        shared_context = state.get("shared_context", {})
+        shared_context = state.get("shared_context") or {}
         stock_code = shared_context.get("stock_code", "")
         stock_name = shared_context.get("stock_name", "")
 
